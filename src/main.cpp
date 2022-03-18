@@ -40,6 +40,8 @@ bool firstMouse = true;
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
 
+const int NUM_POINT_LIGHTS = 4;
+
 struct PointLight {
     glm::vec3 position;
     glm::vec3 ambient;
@@ -51,6 +53,14 @@ struct PointLight {
     float quadratic;
 };
 
+struct DirLight {
+    glm::vec3 direction;
+
+    glm::vec3 ambient;
+    glm::vec3 diffuse;
+    glm::vec3 specular;
+};
+
 struct ProgramState {
     glm::vec3 clearColor = glm::vec3(0);
     bool ImGuiEnabled = false;
@@ -58,7 +68,10 @@ struct ProgramState {
     bool CameraMouseMovementUpdateEnabled = true;
     glm::vec3 balloonPosition = glm::vec3(0.0f);
     float balloonScale = 1.0f;
-    PointLight pointLight;
+
+    std::vector<PointLight> pointLights = std::vector<PointLight>(NUM_POINT_LIGHTS);
+    DirLight dirLight;
+
     ProgramState()
             : camera(glm::vec3(0.0f, 0.0f, 3.0f)) {}
 
@@ -154,6 +167,7 @@ int main() {
 
 
 
+
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 330 core");
 
@@ -170,17 +184,44 @@ int main() {
     Model ourModel("resources/objects/main_balloon/Air_Balloon.obj");
     ourModel.SetShaderTextureNamePrefix("material.");
 
-    PointLight& pointLight = programState->pointLight;
-    pointLight.position = glm::vec3(4.0f, 4.0, 0.0);
-    pointLight.ambient = glm::vec3(0.1, 0.1, 0.1);
-    pointLight.diffuse = glm::vec3(0.6, 0.6, 0.6);
-    pointLight.specular = glm::vec3(1.0, 1.0, 1.0);
-
-    pointLight.constant = 1.0f;
-    pointLight.linear = 0.09f;
-    pointLight.quadratic = 0.032f;
+    Model lightBalloon("resources/objects/small_balloon/Balloon.obj");
+    lightBalloon.SetShaderTextureNamePrefix("material.");
 
 
+    glm::vec3 lightDir = glm::normalize(glm::vec3(0.1, 0.6, 1.0));
+    programState->dirLight.direction = -lightDir;
+    programState->dirLight.ambient = glm::vec3(0.1, 0.1, 0.1);
+    programState->dirLight.diffuse = glm::vec3(0.6, 0.6, 0.6);
+    programState->dirLight.specular = glm::vec3(1.0, 1.0, 1.0);
+
+    std::vector<glm::vec3> lightPositions = {
+        glm::vec3(1.0, 0.0, -1.0),
+        glm::vec3(1.0, 0.0, 1.0),
+        glm::vec3(-1.0, 0.0, 1.0),
+        glm::vec3(-1.0, 0.0, -1.0)
+    };
+
+    for (int i = 0; i < NUM_POINT_LIGHTS; i++) {
+        programState->pointLights[i].position = lightPositions[i];
+        /*
+        programState->pointLights[i].ambient = glm::vec3(0.1, 0.1, 0.1);
+        programState->pointLights[i].diffuse = glm::vec3(0.6, 0.6, 0.6);
+        programState->pointLights[i].specular = glm::vec3(1.0, 1.0, 1.0);
+        */
+        programState->pointLights[i].ambient = glm::vec3(0.2, 0.05, 0.05);
+        programState->pointLights[i].diffuse = glm::vec3(0.9, 0.03, 0.3);
+        programState->pointLights[i].specular = glm::vec3(1.0, 1.0, 1.0);
+
+/*
+        programState->pointLights[i].constant = 1.0f;
+        programState->pointLights[i].linear = 0.09f;
+        programState->pointLights[i].quadratic = 0.032f;
+*/
+
+        programState->pointLights[i].constant = 4.0f;
+        programState->pointLights[i].linear = 0.09f;
+        programState->pointLights[i].quadratic = 0.032f;
+    }
 
 
     //SKYBOX INIT
@@ -274,16 +315,27 @@ int main() {
 
         // don't forget to enable shader before setting uniforms
         ourShader.use();
-        //pointLight.position = glm::vec3(4.0 * cos(currentFrame), 4.0f, 4.0 * sin(currentFrame));
-        pointLight.position = programState->camera.Position; //glm::vec3(2.0 * cos(1), 4.0f, 2.0 * sin(1));
-        ourShader.setVec3("pointLight.position", pointLight.position);
-        ourShader.setVec3("pointLight.ambient", pointLight.ambient);
-        ourShader.setVec3("pointLight.diffuse", pointLight.diffuse);
-        ourShader.setVec3("pointLight.specular", pointLight.specular);
-        ourShader.setFloat("pointLight.constant", pointLight.constant);
-        ourShader.setFloat("pointLight.linear", pointLight.linear);
-        ourShader.setFloat("pointLight.quadratic", pointLight.quadratic);
-        ourShader.setVec3("viewPosition", programState->camera.Position);
+
+        ourShader.setVec3("dirLight.direction", programState->dirLight.direction);
+        ourShader.setVec3("dirLight.ambient", programState->dirLight.ambient);
+        ourShader.setVec3("dirLight.diffuse", programState->dirLight.diffuse);
+        ourShader.setVec3("dirLight.specular", programState->dirLight.specular);
+
+        for (int i=0; i < NUM_POINT_LIGHTS; i++) {
+            std::string pointLightPrefix = "pointLights[" + std::to_string(i)  + "]";
+            ourShader.setVec3(pointLightPrefix + ".position", programState->pointLights[i].position);
+            ourShader.setVec3(pointLightPrefix + ".ambient", programState->pointLights[i].ambient);
+            ourShader.setVec3(pointLightPrefix + ".diffuse", programState->pointLights[i].diffuse);
+            ourShader.setVec3(pointLightPrefix + ".specular", programState->pointLights[i].specular);
+            ourShader.setFloat(pointLightPrefix + ".constant", programState->pointLights[i].constant);
+            ourShader.setFloat(pointLightPrefix + ".linear", programState->pointLights[i].linear);
+            ourShader.setFloat(pointLightPrefix + ".quadratic", programState->pointLights[i].quadratic);
+        }
+
+
+
+
+        ourShader.setVec3("viewPos", programState->camera.Position);
         ourShader.setFloat("material.shininess", 32.0f);
         // view/projection transformations
         glm::mat4 projection = glm::perspective(glm::radians(programState->camera.Zoom),
@@ -301,15 +353,32 @@ int main() {
         model = glm::translate(model,
                                programState->balloonPosition); // translate it down so it's at the center of the scene
         //
-        model = glm::translate(model, glm::vec3(0.0,-10.0, 0.0));
+        //model = glm::translate(model, glm::vec3(0.0,-10.0, 0.0));
 
         //model = glm::rotate(model, glm::pi<float>()/6, glm::vec3(0.0,0.0,1.0));
 
-        model = glm::scale(model, glm::vec3(programState->balloonScale) * glm::vec3(0.5));    // it's a bit too big for our scene, so scale it down
+        model = glm::scale(model, glm::vec3(programState->balloonScale) * glm::vec3(0.8));    // it's a bit too big for our scene, so scale it down
         ourShader.setMat4("model", model);
         ourModel.Draw(ourShader);
 
         //END MAIN BALLOON
+
+        // LIGHT BALLOONS
+        for (int i = 0; i < NUM_POINT_LIGHTS; i++){
+            glm::mat4 model = glm::mat4(1.0f);
+            model = glm::translate(model,
+                                   programState->pointLights[i].position); // translate it down so it's at the center of the scene
+            //
+            //model = glm::translate(model, glm::vec3(0.0,-10.0, 0.0));
+
+            //model = glm::rotate(model, glm::pi<float>()/6, glm::vec3(0.0,0.0,1.0));
+
+            model = glm::scale(model, glm::vec3(programState->balloonScale) * glm::vec3(0.2));    // it's a bit too big for our scene, so scale it down
+            ourShader.setMat4("model", model);
+            lightBalloon.Draw(ourShader);
+        }
+
+        //END LIGHT BALLOONS
 
 
         //SKYBOX
@@ -423,9 +492,9 @@ void DrawImGui(ProgramState *programState) {
         ImGui::DragFloat3("balloon position", (float*)&programState->balloonPosition);
         ImGui::DragFloat("balloon scale", &programState->balloonScale, 0.05, 0.1, 4.0);
 
-        ImGui::DragFloat("pointLight.constant", &programState->pointLight.constant, 0.05, 0.0, 1.0);
-        ImGui::DragFloat("pointLight.linear", &programState->pointLight.linear, 0.05, 0.0, 1.0);
-        ImGui::DragFloat("pointLight.quadratic", &programState->pointLight.quadratic, 0.05, 0.0, 1.0);
+        ImGui::DragFloat("pointLight.constant", &programState->pointLights[0].constant, 0.05, 0.0, 1.0);
+        ImGui::DragFloat("pointLight.linear", &programState->pointLights[0].linear, 0.05, 0.0, 1.0);
+        ImGui::DragFloat("pointLight.quadratic", &programState->pointLights[0].quadratic, 0.05, 0.0, 1.0);
         ImGui::End();
     }
 
