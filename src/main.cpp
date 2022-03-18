@@ -66,8 +66,12 @@ struct ProgramState {
     bool ImGuiEnabled = false;
     Camera camera;
     bool CameraMouseMovementUpdateEnabled = true;
-    glm::vec3 balloonPosition = glm::vec3(0.0f);
-    float balloonScale = 1.0f;
+    glm::vec3 balloonPosition = glm::vec3(-10.0f, 4.0f, 10.0f);
+    glm::vec3 rocksPosition = glm::vec3(0.0f);
+
+    float balloonScale = 0.4f;
+    float smallBalloonScale = 0.1f;
+    float rocksScale = 0.01f;
 
     std::vector<PointLight> pointLights = std::vector<PointLight>(NUM_POINT_LIGHTS);
     DirLight dirLight;
@@ -187,6 +191,9 @@ int main() {
     Model lightBalloon("resources/objects/small_balloon/Balloon.obj");
     lightBalloon.SetShaderTextureNamePrefix("material.");
 
+    Model rocksModel("resources/objects/rocks/rocks.obj");
+    lightBalloon.SetShaderTextureNamePrefix("material.");
+
 
     glm::vec3 lightDir = glm::normalize(glm::vec3(0.1, 0.6, 1.0));
     programState->dirLight.direction = -lightDir;
@@ -195,10 +202,10 @@ int main() {
     programState->dirLight.specular = glm::vec3(1.0, 1.0, 1.0);
 
     std::vector<glm::vec3> lightPositions = {
-        glm::vec3(1.0, 0.0, -1.0),
-        glm::vec3(1.0, 0.0, 1.0),
-        glm::vec3(-1.0, 0.0, 1.0),
-        glm::vec3(-1.0, 0.0, -1.0)
+        glm::vec3(3.0, 1.0, -3.0),
+        glm::vec3(3.0, 1.0, 3.0),
+        glm::vec3(-3.0, 1.0, 3.0),
+        glm::vec3(-3.0, 1.0, -3.0)
     };
 
     for (int i = 0; i < NUM_POINT_LIGHTS; i++) {
@@ -310,6 +317,8 @@ int main() {
 
         // render
         // ------
+
+        // SETUP LIGHTING
         glClearColor(programState->clearColor.r, programState->clearColor.g, programState->clearColor.b, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -335,6 +344,7 @@ int main() {
 
 
 
+        // SETUP VIEW
         ourShader.setVec3("viewPos", programState->camera.Position);
         ourShader.setFloat("material.shininess", 32.0f);
         // view/projection transformations
@@ -352,16 +362,13 @@ int main() {
         glm::mat4 model = glm::mat4(1.0f);
         model = glm::translate(model,
                                programState->balloonPosition); // translate it down so it's at the center of the scene
-        //
-        //model = glm::translate(model, glm::vec3(0.0,-10.0, 0.0));
 
-        //model = glm::rotate(model, glm::pi<float>()/6, glm::vec3(0.0,0.0,1.0));
-
-        model = glm::scale(model, glm::vec3(programState->balloonScale) * glm::vec3(0.8));    // it's a bit too big for our scene, so scale it down
+        model = glm::scale(model, glm::vec3(programState->balloonScale));    // it's a bit too big for our scene, so scale it down
         ourShader.setMat4("model", model);
         ourModel.Draw(ourShader);
 
         //END MAIN BALLOON
+
 
         // LIGHT BALLOONS
         for (int i = 0; i < NUM_POINT_LIGHTS; i++){
@@ -373,12 +380,28 @@ int main() {
 
             //model = glm::rotate(model, glm::pi<float>()/6, glm::vec3(0.0,0.0,1.0));
 
-            model = glm::scale(model, glm::vec3(programState->balloonScale) * glm::vec3(0.2));    // it's a bit too big for our scene, so scale it down
+            model = glm::scale(model, glm::vec3(programState->smallBalloonScale));    // it's a bit too big for our scene, so scale it down
             ourShader.setMat4("model", model);
             lightBalloon.Draw(ourShader);
         }
 
         //END LIGHT BALLOONS
+
+
+
+
+        // ROCKS MODEL
+
+        glm::mat4 rocksTransform = glm::mat4(1.0f);
+        rocksTransform = glm::translate(rocksTransform,
+                               programState->rocksPosition); // translate it down so it's at the center of the scene
+
+        rocksTransform = glm::scale(rocksTransform, glm::vec3(programState->rocksScale));    // it's a bit too big for our scene, so scale it down
+        ourShader.setMat4("model", rocksTransform);
+        rocksModel.Draw(ourShader);
+
+        //END END ROCKS MODEL
+
 
 
         //SKYBOX
