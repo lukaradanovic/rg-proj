@@ -73,6 +73,12 @@ struct ProgramState {
     float smallBalloonScale = 0.1f;
     float rocksScale = 0.01f;
 
+    bool bloom = true;
+    float exposure = 1.66f;
+
+    glm::vec3 lightColor = glm::vec3(1.0, 0.8, 0.15);
+    float lightStrength = 6.0f;
+
     std::vector<PointLight> pointLights = std::vector<PointLight>(NUM_POINT_LIGHTS);
     DirLight dirLight;
 
@@ -119,6 +125,10 @@ ProgramState *programState;
 void DrawImGui(ProgramState *programState);
 
 unsigned int loadCubemap(vector<std::string> faces);
+
+void renderQuad();
+
+bool only_bloom = false;
 
 int main() {
     // glfw: initialize and configure
@@ -182,6 +192,10 @@ int main() {
     // build and compile shaders
     // -------------------------
     Shader ourShader("resources/shaders/2.model_lighting.vs", "resources/shaders/2.model_lighting.fs");
+    Shader lightShader("resources/shaders/light.vs", "resources/shaders/light.fs");
+    Shader blurShader("resources/shaders/blur.vs", "resources/shaders/blur.fs");
+    Shader bloomFinalShader("resources/shaders/bloom_final.vs", "resources/shaders/bloom_final.fs");
+
 
     // load models
     // -----------
@@ -208,27 +222,6 @@ int main() {
         glm::vec3(-3.0, 1.0, -3.0)
     };
 
-    for (int i = 0; i < NUM_POINT_LIGHTS; i++) {
-        programState->pointLights[i].position = lightPositions[i];
-        /*
-        programState->pointLights[i].ambient = glm::vec3(0.1, 0.1, 0.1);
-        programState->pointLights[i].diffuse = glm::vec3(0.6, 0.6, 0.6);
-        programState->pointLights[i].specular = glm::vec3(1.0, 1.0, 1.0);
-        */
-        programState->pointLights[i].ambient = glm::vec3(0.2, 0.05, 0.05);
-        programState->pointLights[i].diffuse = glm::vec3(0.9, 0.03, 0.3);
-        programState->pointLights[i].specular = glm::vec3(1.0, 1.0, 1.0);
-
-/*
-        programState->pointLights[i].constant = 1.0f;
-        programState->pointLights[i].linear = 0.09f;
-        programState->pointLights[i].quadratic = 0.032f;
-*/
-
-        programState->pointLights[i].constant = 4.0f;
-        programState->pointLights[i].linear = 0.09f;
-        programState->pointLights[i].quadratic = 0.032f;
-    }
 
 
     //SKYBOX INIT
@@ -301,6 +294,62 @@ int main() {
     //END SKYBOX INIT
 
 
+    // BLOOM SETUP
+    // configure (floating point) framebuffers
+    // ---------------------------------------
+    unsigned int hdrFBO;
+    glGenFramebuffers(1, &hdrFBO);
+    glBindFramebuffer(GL_FRAMEBUFFER, hdrFBO);
+    // create 2 floating point color buffers (1 for normal rendering, other for brightness threshold values)
+    unsigned int colorBuffers[2];
+    glGenTextures(2, colorBuffers);
+    for (unsigned int i = 0; i < 2; i++)
+    {
+        glBindTexture(GL_TEXTURE_2D, colorBuffers[i]);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, SCR_WIDTH, SCR_HEIGHT, 0, GL_RGBA, GL_FLOAT, NULL);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);  // we clamp to the edge as the blur filter would otherwise sample repeated texture values!
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        // attach texture to framebuffer
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i, GL_TEXTURE_2D, colorBuffers[i], 0);
+    }
+    // create and attach depth buffer (renderbuffer)
+    unsigned int rboDepth;
+    glGenRenderbuffers(1, &rboDepth);
+    glBindRenderbuffer(GL_RENDERBUFFER, rboDepth);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, SCR_WIDTH, SCR_HEIGHT);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, rboDepth);
+    // tell OpenGL which color attachments we'll use (of this framebuffer) for rendering
+    unsigned int attachments[2] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
+    glDrawBuffers(2, attachments);
+    // finally check if framebuffer is complete
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        std::cout << "Framebuffer not complete!" << std::endl;
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    // ping-pong-framebuffer for blurring
+    unsigned int pingpongFBO[2];
+    unsigned int pingpongColorbuffers[2];
+    glGenFramebuffers(2, pingpongFBO);
+    glGenTextures(2, pingpongColorbuffers);
+    for (unsigned int i = 0; i < 2; i++)
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, pingpongFBO[i]);
+        glBindTexture(GL_TEXTURE_2D, pingpongColorbuffers[i]);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, SCR_WIDTH, SCR_HEIGHT, 0, GL_RGBA, GL_FLOAT, NULL);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE); // we clamp to the edge as the blur filter would otherwise sample repeated texture values!
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, pingpongColorbuffers[i], 0);
+        // also check if framebuffers are complete (no need for depth buffer)
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+            std::cout << "Framebuffer not complete!" << std::endl;
+    }
+    // END BLOOM SETUP
+
+
     // render loop
     // -----------
     while (!glfwWindowShouldClose(window)) {
@@ -318,9 +367,27 @@ int main() {
         // render
         // ------
 
+        glBindFramebuffer(GL_FRAMEBUFFER, hdrFBO);
+
         // SETUP LIGHTING
         glClearColor(programState->clearColor.r, programState->clearColor.g, programState->clearColor.b, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+
+        for (int i = 0; i < NUM_POINT_LIGHTS; i++) {
+            programState->pointLights[i].position = lightPositions[i];
+
+            programState->pointLights[i].diffuse = programState->lightColor * glm::vec3(programState->lightStrength);
+            programState->pointLights[i].ambient = glm::vec3(0.05) * programState->pointLights[i].diffuse;
+            programState->pointLights[i].specular = glm::vec3(1.0, 1.0, 1.0);
+
+
+            programState->pointLights[i].constant = 1.0f;
+            programState->pointLights[i].linear = 0.35f;
+            programState->pointLights[i].quadratic = 0.44f;
+        }
+
+
 
         // don't forget to enable shader before setting uniforms
         ourShader.use();
@@ -370,26 +437,6 @@ int main() {
         //END MAIN BALLOON
 
 
-        // LIGHT BALLOONS
-        for (int i = 0; i < NUM_POINT_LIGHTS; i++){
-            glm::mat4 model = glm::mat4(1.0f);
-            model = glm::translate(model,
-                                   programState->pointLights[i].position); // translate it down so it's at the center of the scene
-            //
-            //model = glm::translate(model, glm::vec3(0.0,-10.0, 0.0));
-
-            //model = glm::rotate(model, glm::pi<float>()/6, glm::vec3(0.0,0.0,1.0));
-
-            model = glm::scale(model, glm::vec3(programState->smallBalloonScale));    // it's a bit too big for our scene, so scale it down
-            ourShader.setMat4("model", model);
-            lightBalloon.Draw(ourShader);
-        }
-
-        //END LIGHT BALLOONS
-
-
-
-
         // ROCKS MODEL
 
         glm::mat4 rocksTransform = glm::mat4(1.0f);
@@ -401,6 +448,37 @@ int main() {
         rocksModel.Draw(ourShader);
 
         //END END ROCKS MODEL
+
+
+
+        // LIGHT BALLOONS
+
+        lightShader.use();
+        lightShader.setMat4("projection", projection);
+        lightShader.setMat4("view", view);
+        lightShader.setVec3("viewPos", programState->camera.Position);
+
+        for (int i = 0; i < NUM_POINT_LIGHTS; i++){
+            glm::mat4 model = glm::mat4(1.0f);
+            model = glm::translate(model,
+                                   programState->pointLights[i].position);
+
+            model = glm::scale(model, glm::vec3(programState->smallBalloonScale));    // it's a bit too big for our scene, so scale it down
+            lightShader.setMat4("model", model);
+            lightShader.setVec3("color", programState->pointLights[i].diffuse);
+            lightShader.setVec3("pointLight.position", programState->pointLights[i].position);
+            lightShader.setVec3("pointLight.ambient", programState->pointLights[i].ambient);
+            lightShader.setVec3("pointLight.diffuse", programState->pointLights[i].diffuse);
+            lightShader.setVec3("pointLight.specular", programState->pointLights[i].specular);
+            lightShader.setFloat("pointLight.constant", programState->pointLights[i].constant);
+            lightShader.setFloat("pointLight.linear", programState->pointLights[i].linear);
+            lightShader.setFloat("pointLight.quadratic", programState->pointLights[i].quadratic);
+            lightBalloon.Draw(lightShader);
+        }
+
+        //END LIGHT BALLOONS
+
+
 
 
 
@@ -424,6 +502,43 @@ int main() {
         glDepthFunc(GL_LESS); // set depth function back to default
 
         //END SKYBOX
+
+
+        // BLOOM
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+        // 2. blur bright fragments with two-pass Gaussian Blur
+        // --------------------------------------------------
+        bool horizontal = true, first_iteration = true;
+        unsigned int amount = 5;
+        blurShader.use();
+        for (unsigned int i = 0; i < amount; i++)
+        {
+            glBindFramebuffer(GL_FRAMEBUFFER, pingpongFBO[horizontal]);
+            blurShader.setInt("horizontal", horizontal);
+            glBindTexture(GL_TEXTURE_2D, first_iteration ? colorBuffers[1] : pingpongColorbuffers[!horizontal]);  // bind texture of other framebuffer (or scene if first iteration)
+            renderQuad();
+            horizontal = !horizontal;
+            if (first_iteration)
+                first_iteration = false;
+        }
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+        // 3. now render floating point color buffer to 2D quad and tonemap HDR colors to default framebuffer's (clamped) color range
+        // --------------------------------------------------------------------------------------------------------------------------
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        bloomFinalShader.use();
+        bloomFinalShader.setInt("scene", 0);
+        bloomFinalShader.setInt("bloomBlur", 1);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, colorBuffers[0]);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, pingpongColorbuffers[!horizontal]);
+        bloomFinalShader.setInt("bloom", programState->bloom);
+        bloomFinalShader.setFloat("exposure", programState->exposure);
+        renderQuad();
+        // END BLOOM
+
 
 
 
@@ -511,9 +626,14 @@ void DrawImGui(ProgramState *programState) {
         ImGui::Begin("Hello window");
         ImGui::Text("Hello text");
         ImGui::SliderFloat("Float slider", &f, 0.0, 1.0);
+        /*
         ImGui::ColorEdit3("Background color", (float *) &programState->clearColor);
         ImGui::DragFloat3("balloon position", (float*)&programState->balloonPosition);
         ImGui::DragFloat("balloon scale", &programState->balloonScale, 0.05, 0.1, 4.0);
+        */
+
+        ImGui::ColorEdit3("light color", (float *) &programState->lightColor);
+        ImGui::DragFloat("exposure", &programState->exposure, 0.05, 0.01, 4.0);
 
         ImGui::DragFloat("pointLight.constant", &programState->pointLights[0].constant, 0.05, 0.0, 1.0);
         ImGui::DragFloat("pointLight.linear", &programState->pointLights[0].linear, 0.05, 0.0, 1.0);
@@ -545,6 +665,9 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action, int mod
             glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
         }
     }
+
+    if (key == GLFW_KEY_B && action == GLFW_PRESS)
+        programState->bloom = !programState->bloom;
 }
 
 unsigned int loadCubemap(vector<std::string> faces)
@@ -581,3 +704,34 @@ unsigned int loadCubemap(vector<std::string> faces)
     return textureID;
 }
 
+
+// renderQuad() renders a 1x1 XY quad in NDC
+// -----------------------------------------
+unsigned int quadVAO = 0;
+unsigned int quadVBO;
+void renderQuad()
+{
+    if (quadVAO == 0)
+    {
+        float quadVertices[] = {
+            // positions        // texture Coords
+            -1.0f,  1.0f, 0.0f, 0.0f, 1.0f,
+            -1.0f, -1.0f, 0.0f, 0.0f, 0.0f,
+             1.0f,  1.0f, 0.0f, 1.0f, 1.0f,
+             1.0f, -1.0f, 0.0f, 1.0f, 0.0f,
+        };
+        // setup plane VAO
+        glGenVertexArrays(1, &quadVAO);
+        glGenBuffers(1, &quadVBO);
+        glBindVertexArray(quadVAO);
+        glBindBuffer(GL_ARRAY_BUFFER, quadVBO);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), &quadVertices, GL_STATIC_DRAW);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
+    }
+    glBindVertexArray(quadVAO);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glBindVertexArray(0);
+}

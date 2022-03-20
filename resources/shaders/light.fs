@@ -8,14 +8,6 @@ struct Material {
     float shininess;
 };
 
-struct DirLight {
-    vec3 direction;
-
-    vec3 ambient;
-    vec3 diffuse;
-    vec3 specular;
-};
-
 struct PointLight {
     vec3 position;
 
@@ -28,64 +20,43 @@ struct PointLight {
     vec3 specular;
 };
 
-
-#define NR_POINT_LIGHTS 4
-
 in vec3 FragPos;
 in vec3 Normal;
 in vec2 TexCoords;
 
-uniform vec3 viewPos;
-uniform DirLight dirLight;
-uniform PointLight pointLights[NR_POINT_LIGHTS];
-
+uniform vec3 color;
 uniform Material material;
+uniform PointLight pointLight;
+uniform vec3 viewPos;
 
-// function prototypes
-vec3 CalcDirLight(DirLight light, vec3 normal, vec3 viewDir);
 vec3 CalcPointLight(PointLight light, vec3 normal, vec3 fragPos, vec3 viewDir);
 
 void main()
 {
-    // properties
     vec3 norm = normalize(Normal);
     vec3 viewDir = normalize(viewPos - FragPos);
 
-    // phase 1: directional lighting
-    vec3 result = CalcDirLight(dirLight, norm, viewDir);
-    // phase 2: point lights
-    for(int i = 0; i < NR_POINT_LIGHTS; i++)
-        result += CalcPointLight(pointLights[i], norm, FragPos, viewDir);
-    // phase 3: spot light
+    vec3 col = vec3(texture(material.diffuse, TexCoords));
+    
+    if (col.r > col.g)
+    {
+        col = color;
+    }
+    else
+    {
+        col += CalcPointLight(pointLight, norm, FragPos, viewDir);
+    }
 
-    FragColor = vec4(result, 1.0);
 
-
+    FragColor = vec4(col, 1.0);
 
     float brightness = dot(FragColor.rgb, vec3(0.2126, 0.7152, 0.0722));
-    if(brightness > 10.0)
+    if(brightness > 1.0)
         BrightColor = vec4(FragColor.rgb, 1.0);
 	else
 		BrightColor = vec4(0.0, 0.0, 0.0, 1.0);
 }
 
-// calculates the color when using a directional light.
-vec3 CalcDirLight(DirLight light, vec3 normal, vec3 viewDir)
-{
-    vec3 lightDir = normalize(-light.direction);
-    // diffuse shading
-    float diff = max(dot(normal, lightDir), 0.0);
-    // specular shading
-    vec3 halfwayDir = normalize(lightDir + viewDir);
-    float spec = pow(max(dot(normal, halfwayDir), 0.0), material.shininess);
-    // combine results
-    vec3 ambient = light.ambient * vec3(texture(material.diffuse, TexCoords));
-    vec3 diffuse = light.diffuse * diff * vec3(texture(material.diffuse, TexCoords));
-    vec3 specular = light.specular * spec * vec3(texture(material.specular, TexCoords));
-    return (ambient + diffuse + specular);
-}
-
-// calculates the color when using a point light.
 vec3 CalcPointLight(PointLight light, vec3 normal, vec3 fragPos, vec3 viewDir)
 {
     vec3 lightDir = normalize(light.position - fragPos);
