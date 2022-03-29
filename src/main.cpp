@@ -79,6 +79,10 @@ struct ProgramState {
     glm::vec3 lightColor = glm::vec3(1.0, 0.8, 0.15);
     float lightStrength = 6.0f;
 
+    unsigned balloonAmount = 100;
+
+    bool backgroundBloom = false;
+    
     std::vector<PointLight> pointLights = std::vector<PointLight>(NUM_POINT_LIGHTS);
     DirLight dirLight;
 
@@ -101,7 +105,10 @@ void ProgramState::SaveToFile(std::string filename) {
         << camera.Position.z << '\n'
         << camera.Front.x << '\n'
         << camera.Front.y << '\n'
-        << camera.Front.z << '\n';
+        << camera.Front.z << '\n'
+        << lightColor.r << '\n'
+        << lightColor.g << '\n'
+        << lightColor.b << '\n';
 }
 
 void ProgramState::LoadFromFile(std::string filename) {
@@ -116,7 +123,10 @@ void ProgramState::LoadFromFile(std::string filename) {
            >> camera.Position.z
            >> camera.Front.x
            >> camera.Front.y
-           >> camera.Front.z;
+           >> camera.Front.z
+           >> lightColor.r
+           >> lightColor.g
+           >> lightColor.b;
     }
 }
 
@@ -128,7 +138,9 @@ unsigned int loadCubemap(vector<std::string> faces);
 
 void renderQuad();
 
-bool only_bloom = false;
+unsigned int loadTexture(const char *path);
+
+//bool only_bloom = false;
 
 int main() {
     // glfw: initialize and configure
@@ -195,6 +207,7 @@ int main() {
     Shader lightShader("resources/shaders/light.vs", "resources/shaders/light.fs");
     Shader blurShader("resources/shaders/blur.vs", "resources/shaders/blur.fs");
     Shader bloomFinalShader("resources/shaders/bloom_final.vs", "resources/shaders/bloom_final.fs");
+    Shader instancedShader("resources/shaders/instanced.vs", "resources/shaders/instanced.fs");
 
 
     // load models
@@ -429,6 +442,99 @@ int main() {
     ourShader.setInt("material.specular", 1);
 
     //END CUBE WITH GOLD TEXTURE
+    
+    // TRANSPARENT TEXTURE
+
+    float transparentVertices[] = {
+        // positions         // texture Coords (swapped y coordinates because texture is flipped upside down)
+        0.0f,  0.5f,  0.0f,  0.0f,  0.0f,
+        0.0f, -0.5f,  0.0f,  0.0f,  1.0f,
+        1.0f, -0.5f,  0.0f,  1.0f,  1.0f,
+
+        0.0f,  0.5f,  0.0f,  0.0f,  0.0f,
+        1.0f, -0.5f,  0.0f,  1.0f,  1.0f,
+        1.0f,  0.5f,  0.0f,  1.0f,  0.0f
+    };
+    unsigned int transparentVAO, transparentVBO;
+    glGenVertexArrays(1, &transparentVAO);
+    glGenBuffers(1, &transparentVBO);
+    glBindVertexArray(transparentVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, transparentVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(transparentVertices), transparentVertices, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
+    glBindVertexArray(0);
+
+    unsigned int transparentTexture = loadTexture(FileSystem::getPath("resources/textures/grass/grass.png").c_str());
+
+    // END TRANSPARENT TEXTURE
+
+
+    // INSTANCED BALLOONS SETUP
+
+    // generate a large list of semi-random model transformation matrices
+    // ------------------------------------------------------------------
+    glm::mat4* modelMatrices;
+    modelMatrices = new glm::mat4[programState->balloonAmount];
+    srand(glfwGetTime()); // initialize random seed
+    float radius = 60.0;
+    float offset = 10.0f;
+    for (unsigned int i = 0; i < programState->balloonAmount; i++)
+    {
+        glm::mat4 model = glm::mat4(1.0f);
+        // 1. translation: displace along circle with 'radius' in range [-offset, offset]
+        float angle = (float)i / (float)programState->balloonAmount * 230.0f + 60.0f;
+        float displacement = (rand() % (int)(2 * offset * 100)) / 100.0f - offset;
+        float x = sin(glm::radians(angle)) * radius + displacement;
+        displacement = (rand() % (int)(2 * offset * 100)) / 100.0f - offset;
+        float y = displacement;
+        displacement = (rand() % (int)(2 * offset * 100)) / 100.0f - offset;
+        float z = cos(glm::radians(angle)) * radius + displacement;
+
+        model = glm::translate(model, glm::vec3(x, y, z));
+
+        model = glm::scale(model, glm::vec3(1.0f));
+
+        // 4. now add to list of matrices
+        modelMatrices[i] = model;
+    }
+
+    // configure instanced array
+    // -------------------------
+    unsigned int modelMatrixBuffer;
+    glGenBuffers(1, &modelMatrixBuffer);
+    glBindBuffer(GL_ARRAY_BUFFER, modelMatrixBuffer);
+    glBufferData(GL_ARRAY_BUFFER, programState->balloonAmount * sizeof(glm::mat4), &modelMatrices[0], GL_STATIC_DRAW);
+
+    // set transformation matrices as an instance vertex attribute (with divisor 1)
+    // note: we're cheating a little by taking the, now publicly declared, VAO of the model's mesh(es) and adding new vertexAttribPointers
+    // normally you'd want to do this in a more organized fashion, but for learning purposes this will do.
+    // -----------------------------------------------------------------------------------------------------------------------------------
+    for (unsigned int i = 0; i < lightBalloon.meshes.size(); i++)
+    {
+        unsigned int VAO = lightBalloon.meshes[i].VAO;
+        glBindVertexArray(VAO);
+        // set attribute pointers for matrix (4 times vec4)
+        glEnableVertexAttribArray(3);
+        glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(glm::mat4), (void*)0);
+        glEnableVertexAttribArray(4);
+        glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, sizeof(glm::mat4), (void*)(sizeof(glm::vec4)));
+        glEnableVertexAttribArray(5);
+        glVertexAttribPointer(5, 4, GL_FLOAT, GL_FALSE, sizeof(glm::mat4), (void*)(2 * sizeof(glm::vec4)));
+        glEnableVertexAttribArray(6);
+        glVertexAttribPointer(6, 4, GL_FLOAT, GL_FALSE, sizeof(glm::mat4), (void*)(3 * sizeof(glm::vec4)));
+
+        glVertexAttribDivisor(3, 1);
+        glVertexAttribDivisor(4, 1);
+        glVertexAttribDivisor(5, 1);
+        glVertexAttribDivisor(6, 1);
+
+        glBindVertexArray(0);
+    }
+
+    // END INSTANCED SETUP
 
     // render loop
     // -----------
@@ -442,7 +548,10 @@ int main() {
         // input
         // -----
         processInput(window);
-
+        
+        glEnable(GL_CULL_FACE);
+        glCullFace(GL_BACK);
+        glFrontFace(GL_CCW);
 
         // render
         // ------
@@ -453,8 +562,16 @@ int main() {
         glClearColor(programState->clearColor.r, programState->clearColor.g, programState->clearColor.b, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-
+        float lightRadius = 3.0f;
+        float lightHeight = 1.0f;
         for (int i = 0; i < NUM_POINT_LIGHTS; i++) {
+            float startingAngle = startingAngle = glm::radians(i * 30.0f); // glm::radians(i / (float)NUM_POINT_LIGHTS * 360.0f);
+
+
+            float x = sin(startingAngle + glfwGetTime() / 2) * lightRadius;
+            float z = cos(startingAngle + glfwGetTime() / 2) * lightRadius;
+
+            
             programState->pointLights[i].position = lightPositions[i];
 
             programState->pointLights[i].diffuse = programState->lightColor * glm::vec3(programState->lightStrength);
@@ -564,16 +681,11 @@ int main() {
 
         // be sure to activate shader when setting uniforms/drawing objects
         ourShader.use();
-        //lightingShader.setVec3("light.position", programState->lightPos);
+        
+        ourShader.setInt("material.diffuse", 0);
+        ourShader.setInt("material.specular", 1);
+        
         ourShader.setVec3("viewPos", programState->camera.Position);
-
-        // light properties
-        ourShader.setVec3("light.ambient", 0.2f, 0.2f, 0.2f);
-        ourShader.setVec3("light.diffuse", 0.5f, 0.5f, 0.5f);
-        ourShader.setVec3("light.specular", 1.0f, 1.0f, 1.0f);
-        ourShader.setFloat("light.constant", 1.0f);
-        ourShader.setFloat("light.linear", 0.09f);
-        ourShader.setFloat("light.quadratic", 0.032f);
 
         // material properties
         ourShader.setFloat("material.shininess", 32.0f);
@@ -601,6 +713,7 @@ int main() {
             // calculate the model matrix for each object and pass it to shader before drawing
             model = glm::mat4(1.0f);
             model = glm::translate(model, cubePosition);
+            model = glm::scale(model, glm::vec3(0.3));
             ourShader.setMat4("model", model);
 
             glDrawArrays(GL_TRIANGLES, 0, 36);
@@ -608,6 +721,94 @@ int main() {
 
 
         //END CUBE WITH GOLD TEXTURE
+        
+        
+        // TRANSPARENT TEXTURE
+
+        glDisable(GL_CULL_FACE);
+
+        glBindVertexArray(transparentVAO);
+
+        blendShader.use();
+        blendShader.setInt("texture1", 0);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, transparentTexture);
+
+        glm::mat4 transparentTransform = glm::mat4(1.0f);
+        //transparentTransform = glm::translate(transparentTransform, glm::vec3(-1.0, 2.2, 0.5));
+        transparentTransform = glm::translate(transparentTransform, glm::vec3(-2.4, 3.1, -0.7));
+
+        transparentTransform = glm::scale(transparentTransform, glm::vec3(0.3, -0.2, 0.3));
+
+        blendShader.setMat4("model", transparentTransform);
+        blendShader.setMat4("view", view);
+        blendShader.setMat4("projection", projection);
+
+
+        blendShader.setVec3("viewPos", programState->camera.Position);
+
+        blendShader.setVec3("dirLight.direction", programState->dirLight.direction);
+        blendShader.setVec3("dirLight.ambient", programState->dirLight.ambient);
+        blendShader.setVec3("dirLight.diffuse", programState->dirLight.diffuse);
+        blendShader.setVec3("dirLight.specular", programState->dirLight.specular);
+
+        for (int i=0; i < NUM_POINT_LIGHTS; i++) {
+            std::string pointLightPrefix = "pointLights[" + std::to_string(i)  + "]";
+            blendShader.setVec3(pointLightPrefix + ".position", programState->pointLights[i].position);
+            blendShader.setVec3(pointLightPrefix + ".ambient", programState->pointLights[i].ambient);
+            blendShader.setVec3(pointLightPrefix + ".diffuse", programState->pointLights[i].diffuse);
+            blendShader.setVec3(pointLightPrefix + ".specular", programState->pointLights[i].specular);
+            blendShader.setFloat(pointLightPrefix + ".constant", programState->pointLights[i].constant);
+            blendShader.setFloat(pointLightPrefix + ".linear", programState->pointLights[i].linear);
+            blendShader.setFloat(pointLightPrefix + ".quadratic", programState->pointLights[i].quadratic);
+        }
+
+
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+
+        glEnable(GL_CULL_FACE);
+
+        // END TRANSPARENT TEXTURE
+
+
+        // INSTANCED BALLOONS
+
+        instancedShader.use();
+        instancedShader.setMat4("projection", projection);
+        instancedShader.setMat4("view", view);
+
+        instancedShader.setVec3("viewPos", programState->camera.Position);
+
+        instancedShader.setVec3("dirLight.direction", programState->dirLight.direction);
+        instancedShader.setVec3("dirLight.ambient", programState->dirLight.ambient);
+        instancedShader.setVec3("dirLight.diffuse", programState->dirLight.diffuse);
+        instancedShader.setVec3("dirLight.specular", programState->dirLight.specular);
+
+        for (int i=0; i < NUM_POINT_LIGHTS; i++) {
+            std::string pointLightPrefix = "pointLights[" + std::to_string(i)  + "]";
+            instancedShader.setVec3(pointLightPrefix + ".position", programState->pointLights[i].position);
+            instancedShader.setVec3(pointLightPrefix + ".ambient", programState->pointLights[i].ambient);
+            instancedShader.setVec3(pointLightPrefix + ".diffuse", programState->pointLights[i].diffuse);
+            instancedShader.setVec3(pointLightPrefix + ".specular", programState->pointLights[i].specular);
+            instancedShader.setFloat(pointLightPrefix + ".constant", programState->pointLights[i].constant);
+            instancedShader.setFloat(pointLightPrefix + ".linear", programState->pointLights[i].linear);
+            instancedShader.setFloat(pointLightPrefix + ".quadratic", programState->pointLights[i].quadratic);
+        }
+
+        instancedShader.setFloat("shininess", 32.0f);
+        instancedShader.setInt("texture_diffuse", 0);
+        instancedShader.setFloat("bloom", programState->backgroundBloom);
+        glActiveTexture(GL_TEXTURE0);
+        for (unsigned int i = 0; i < lightBalloon.meshes.size(); i++)
+        {
+
+            glBindTexture(GL_TEXTURE_2D, lightBalloon.meshes[i].textures[0].id);
+            glBindVertexArray(lightBalloon.meshes[i].VAO);
+            glDrawElementsInstanced(GL_TRIANGLES, lightBalloon.meshes[i].indices.size(), GL_UNSIGNED_INT, 0, programState->balloonAmount);
+            glBindVertexArray(0);
+        }
+
+        // END INSTANCED BALLOONS
 
 
 
@@ -763,10 +964,12 @@ void DrawImGui(ProgramState *programState) {
 
         ImGui::ColorEdit3("light color", (float *) &programState->lightColor);
         ImGui::DragFloat("exposure", &programState->exposure, 0.05, 0.01, 4.0);
+        ImGui::Checkbox("bloom", &programState->bloom);
 
-        ImGui::DragFloat("pointLight.constant", &programState->pointLights[0].constant, 0.05, 0.0, 1.0);
+        /*ImGui::DragFloat("pointLight.constant", &programState->pointLights[0].constant, 0.05, 0.0, 1.0);
         ImGui::DragFloat("pointLight.linear", &programState->pointLights[0].linear, 0.05, 0.0, 1.0);
         ImGui::DragFloat("pointLight.quadratic", &programState->pointLights[0].quadratic, 0.05, 0.0, 1.0);
+        */
         ImGui::End();
     }
 
@@ -863,4 +1066,44 @@ void renderQuad()
     glBindVertexArray(quadVAO);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     glBindVertexArray(0);
+}
+
+
+// utility function for loading a 2D texture from file
+// ---------------------------------------------------
+unsigned int loadTexture(char const * path)
+{
+    unsigned int textureID;
+    glGenTextures(1, &textureID);
+
+    int width, height, nrComponents;
+    unsigned char *data = stbi_load(path, &width, &height, &nrComponents, 0);
+    if (data)
+    {
+        GLenum format;
+        if (nrComponents == 1)
+            format = GL_RED;
+        else if (nrComponents == 3)
+            format = GL_RGB;
+        else if (nrComponents == 4)
+            format = GL_RGBA;
+
+        glBindTexture(GL_TEXTURE_2D, textureID);
+        glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
+        glGenerateMipmap(GL_TEXTURE_2D);
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, format == GL_RGBA ? GL_CLAMP_TO_EDGE : GL_REPEAT); // for this tutorial: use GL_CLAMP_TO_EDGE to prevent semi-transparent borders. Due to interpolation it takes texels from next repeat
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, format == GL_RGBA ? GL_CLAMP_TO_EDGE : GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+        stbi_image_free(data);
+    }
+    else
+    {
+        std::cout << "Texture failed to load at path: " << path << std::endl;
+        stbi_image_free(data);
+    }
+
+    return textureID;
 }
