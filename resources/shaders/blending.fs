@@ -63,7 +63,6 @@ void main()
     // phase 2: point lights
     for(int i = 0; i < NR_POINT_LIGHTS; i++)
         result += CalcPointLight(pointLights[i], norm, FragPos, viewDir);
-    // phase 3: spot light
 
     FragColor = vec4(result, 1.0);
     BrightColor = vec4(0.0,0.0,0.0,1.0);

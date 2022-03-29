@@ -82,7 +82,7 @@ struct ProgramState {
     unsigned balloonAmount = 100;
 
     bool backgroundBloom = false;
-    
+
     std::vector<PointLight> pointLights = std::vector<PointLight>(NUM_POINT_LIGHTS);
     DirLight dirLight;
 
@@ -109,6 +109,7 @@ void ProgramState::SaveToFile(std::string filename) {
         << lightColor.r << '\n'
         << lightColor.g << '\n'
         << lightColor.b << '\n';
+
 }
 
 void ProgramState::LoadFromFile(std::string filename) {
@@ -127,6 +128,7 @@ void ProgramState::LoadFromFile(std::string filename) {
            >> lightColor.r
            >> lightColor.g
            >> lightColor.b;
+
     }
 }
 
@@ -140,7 +142,6 @@ void renderQuad();
 
 unsigned int loadTexture(const char *path);
 
-//bool only_bloom = false;
 
 int main() {
     // glfw: initialize and configure
@@ -207,6 +208,7 @@ int main() {
     Shader lightShader("resources/shaders/light.vs", "resources/shaders/light.fs");
     Shader blurShader("resources/shaders/blur.vs", "resources/shaders/blur.fs");
     Shader bloomFinalShader("resources/shaders/bloom_final.vs", "resources/shaders/bloom_final.fs");
+    Shader blendShader("resources/shaders/blending.vs", "resources/shaders/blending.fs");
     Shader instancedShader("resources/shaders/instanced.vs", "resources/shaders/instanced.fs");
 
 
@@ -219,7 +221,7 @@ int main() {
     lightBalloon.SetShaderTextureNamePrefix("material.");
 
     Model rocksModel("resources/objects/rocks/rocks.obj");
-    lightBalloon.SetShaderTextureNamePrefix("material.");
+    rocksModel.SetShaderTextureNamePrefix("material.");
 
 
     glm::vec3 lightDir = glm::normalize(glm::vec3(0.1, 0.6, 1.0));
@@ -361,58 +363,59 @@ int main() {
             std::cout << "Framebuffer not complete!" << std::endl;
     }
     // END BLOOM SETUP
-
-    
-    
-
-//CUBE WITH GOLD TEXTURE
+    //CUBE WITH GOLD TEXTURE
 
     float vertices[] = {
-            // positions          // normals           // texture coords
-            -0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  0.0f,  0.0f,
-            0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  1.0f,  0.0f,
-            0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  1.0f,  1.0f,
-            0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  1.0f,  1.0f,
-            -0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  0.0f,  1.0f,
-            -0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  0.0f,  0.0f,
+        // positions          // normals           // texture coords
+        0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  1.0f,  0.0f,
+        -0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  0.0f,  0.0f,
+        0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  1.0f,  1.0f,
+        -0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  0.0f,  1.0f,
+        0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  1.0f,  1.0f,
+        -0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  0.0f,  0.0f,
 
-            -0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  0.0f,  0.0f,
-            0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  1.0f,  0.0f,
-            0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  1.0f,  1.0f,
-            0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  1.0f,  1.0f,
-            -0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  0.0f,  1.0f,
-            -0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  0.0f,  0.0f,
 
-            -0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,  1.0f,  0.0f,
-            -0.5f,  0.5f, -0.5f, -1.0f,  0.0f,  0.0f,  1.0f,  1.0f,
-            -0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f,  0.0f,  1.0f,
-            -0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f,  0.0f,  1.0f,
-            -0.5f, -0.5f,  0.5f, -1.0f,  0.0f,  0.0f,  0.0f,  0.0f,
-            -0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,  1.0f,  0.0f,
+        -0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  0.0f,  0.0f,
+        0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  1.0f,  0.0f,
+        0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  1.0f,  1.0f,
+        0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  1.0f,  1.0f,
+        -0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  0.0f,  1.0f,
+        -0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  0.0f,  0.0f,
 
-            0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,  1.0f,  0.0f,
-            0.5f,  0.5f, -0.5f,  1.0f,  0.0f,  0.0f,  1.0f,  1.0f,
-            0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f,  0.0f,  1.0f,
-            0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f,  0.0f,  1.0f,
-            0.5f, -0.5f,  0.5f,  1.0f,  0.0f,  0.0f,  0.0f,  0.0f,
-            0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,  1.0f,  0.0f,
 
-            -0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,  0.0f,  1.0f,
-            0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,  1.0f,  1.0f,
-            0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,  1.0f,  0.0f,
-            0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,  1.0f,  0.0f,
-            -0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,  0.0f,  0.0f,
-            -0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,  0.0f,  1.0f,
+        -0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,  1.0f,  0.0f,
+        -0.5f,  0.5f, -0.5f, -1.0f,  0.0f,  0.0f,  1.0f,  1.0f,
+        -0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f,  0.0f,  1.0f,
+        -0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f,  0.0f,  1.0f,
+        -0.5f, -0.5f,  0.5f, -1.0f,  0.0f,  0.0f,  0.0f,  0.0f,
+        -0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,  1.0f,  0.0f,
 
-            -0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  0.0f,  1.0f,
-            0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  1.0f,  1.0f,
-            0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  1.0f,  0.0f,
-            0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  1.0f,  0.0f,
-            -0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  0.0f,  0.0f,
-            -0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  0.0f,  1.0f
+
+        0.5f,  0.5f, -0.5f,  1.0f,  0.0f,  0.0f,  1.0f,  1.0f,
+        0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,  1.0f,  0.0f,
+        0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f,  0.0f,  1.0f,
+        0.5f, -0.5f,  0.5f,  1.0f,  0.0f,  0.0f,  0.0f,  0.0f,
+        0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f,  0.0f,  1.0f,
+        0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,  1.0f,  0.0f,
+
+
+        -0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,  0.0f,  1.0f,
+        0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,  1.0f,  1.0f,
+        0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,  1.0f,  0.0f,
+        0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,  1.0f,  0.0f,
+        -0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,  0.0f,  0.0f,
+        -0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,  0.0f,  1.0f,
+
+
+        0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  1.0f,  1.0f,
+        -0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  0.0f,  1.0f,
+        0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  1.0f,  0.0f,
+        -0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  0.0f,  0.0f,
+        0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  1.0f,  0.0f,
+        -0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  0.0f,  1.0f
     };
 
-    glm::vec3 cubePosition = glm::vec3(-0.5f, 2.5f, 0.5f);
+    glm::vec3 cubePosition = glm::vec3(-0.9f, 2.3f, 0.5f);
     // first, configure the cube's VAO (and VBO)
     unsigned int VBO, cubeVAO;
     glGenVertexArrays(1, &cubeVAO);
@@ -442,7 +445,9 @@ int main() {
     ourShader.setInt("material.specular", 1);
 
     //END CUBE WITH GOLD TEXTURE
-    
+
+
+
     // TRANSPARENT TEXTURE
 
     float transparentVertices[] = {
@@ -497,7 +502,7 @@ int main() {
 
         model = glm::scale(model, glm::vec3(1.0f));
 
-        // 4. now add to list of matrices
+        // add to list of matrices
         modelMatrices[i] = model;
     }
 
@@ -509,8 +514,6 @@ int main() {
     glBufferData(GL_ARRAY_BUFFER, programState->balloonAmount * sizeof(glm::mat4), &modelMatrices[0], GL_STATIC_DRAW);
 
     // set transformation matrices as an instance vertex attribute (with divisor 1)
-    // note: we're cheating a little by taking the, now publicly declared, VAO of the model's mesh(es) and adding new vertexAttribPointers
-    // normally you'd want to do this in a more organized fashion, but for learning purposes this will do.
     // -----------------------------------------------------------------------------------------------------------------------------------
     for (unsigned int i = 0; i < lightBalloon.meshes.size(); i++)
     {
@@ -536,6 +539,7 @@ int main() {
 
     // END INSTANCED SETUP
 
+
     // render loop
     // -----------
     while (!glfwWindowShouldClose(window)) {
@@ -548,10 +552,12 @@ int main() {
         // input
         // -----
         processInput(window);
-        
+
+
         glEnable(GL_CULL_FACE);
         glCullFace(GL_BACK);
         glFrontFace(GL_CCW);
+
 
         // render
         // ------
@@ -562,17 +568,17 @@ int main() {
         glClearColor(programState->clearColor.r, programState->clearColor.g, programState->clearColor.b, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+
         float lightRadius = 3.0f;
         float lightHeight = 1.0f;
         for (int i = 0; i < NUM_POINT_LIGHTS; i++) {
-            float startingAngle = startingAngle = glm::radians(i * 30.0f); // glm::radians(i / (float)NUM_POINT_LIGHTS * 360.0f);
+            float startingAngle = glm::radians(i * 30.0f);
 
 
             float x = sin(startingAngle + glfwGetTime() / 2) * lightRadius;
             float z = cos(startingAngle + glfwGetTime() / 2) * lightRadius;
 
-            
-            programState->pointLights[i].position = lightPositions[i];
+            programState->pointLights[i].position = glm::vec3(x, lightHeight, z);
 
             programState->pointLights[i].diffuse = programState->lightColor * glm::vec3(programState->lightStrength);
             programState->pointLights[i].ambient = glm::vec3(0.05) * programState->pointLights[i].diffuse;
@@ -625,9 +631,9 @@ int main() {
 
         glm::mat4 model = glm::mat4(1.0f);
         model = glm::translate(model,
-                               programState->balloonPosition); // translate it down so it's at the center of the scene
+                               programState->balloonPosition);
 
-        model = glm::scale(model, glm::vec3(programState->balloonScale));    // it's a bit too big for our scene, so scale it down
+        model = glm::scale(model, glm::vec3(programState->balloonScale));
         ourShader.setMat4("model", model);
         ourModel.Draw(ourShader);
 
@@ -638,9 +644,9 @@ int main() {
 
         glm::mat4 rocksTransform = glm::mat4(1.0f);
         rocksTransform = glm::translate(rocksTransform,
-                               programState->rocksPosition); // translate it down so it's at the center of the scene
+                               programState->rocksPosition);
 
-        rocksTransform = glm::scale(rocksTransform, glm::vec3(programState->rocksScale));    // it's a bit too big for our scene, so scale it down
+        rocksTransform = glm::scale(rocksTransform, glm::vec3(programState->rocksScale));
         ourShader.setMat4("model", rocksTransform);
         rocksModel.Draw(ourShader);
 
@@ -660,7 +666,7 @@ int main() {
             model = glm::translate(model,
                                    programState->pointLights[i].position);
 
-            model = glm::scale(model, glm::vec3(programState->smallBalloonScale));    // it's a bit too big for our scene, so scale it down
+            model = glm::scale(model, glm::vec3(programState->smallBalloonScale));
             lightShader.setMat4("model", model);
             lightShader.setVec3("color", programState->pointLights[i].diffuse);
             lightShader.setVec3("pointLight.position", programState->pointLights[i].position);
@@ -676,15 +682,13 @@ int main() {
         //END LIGHT BALLOONS
 
 
-        
-//CUBE WITH GOLD TEXTURE
+        //CUBE WITH GOLD TEXTURE
 
-        // be sure to activate shader when setting uniforms/drawing objects
         ourShader.use();
-        
+
         ourShader.setInt("material.diffuse", 0);
         ourShader.setInt("material.specular", 1);
-        
+
         ourShader.setVec3("viewPos", programState->camera.Position);
 
         // material properties
@@ -710,19 +714,22 @@ int main() {
         // render containers
         glBindVertexArray(cubeVAO);
 
-            // calculate the model matrix for each object and pass it to shader before drawing
-            model = glm::mat4(1.0f);
-            model = glm::translate(model, cubePosition);
-            model = glm::scale(model, glm::vec3(0.3));
-            ourShader.setMat4("model", model);
+        // calculate the model matrix for each object and pass it to shader before drawing
+        model = glm::mat4(1.0f);
+        model = glm::translate(model, cubePosition);
 
-            glDrawArrays(GL_TRIANGLES, 0, 36);
+        model = glm::scale(model, glm::vec3(0.3));
 
+        ourShader.setMat4("model", model);
+
+        glDrawArrays(GL_TRIANGLES, 0, 36);
 
 
         //END CUBE WITH GOLD TEXTURE
-        
-        
+
+
+
+
         // TRANSPARENT TEXTURE
 
         glDisable(GL_CULL_FACE);
@@ -735,7 +742,6 @@ int main() {
         glBindTexture(GL_TEXTURE_2D, transparentTexture);
 
         glm::mat4 transparentTransform = glm::mat4(1.0f);
-        //transparentTransform = glm::translate(transparentTransform, glm::vec3(-1.0, 2.2, 0.5));
         transparentTransform = glm::translate(transparentTransform, glm::vec3(-2.4, 3.1, -0.7));
 
         transparentTransform = glm::scale(transparentTransform, glm::vec3(0.3, -0.2, 0.3));
@@ -812,6 +818,7 @@ int main() {
 
 
 
+
         //SKYBOX
 
         skyboxShader.use();
@@ -834,10 +841,14 @@ int main() {
         //END SKYBOX
 
 
+
+
+
+
         // BLOOM
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-        // 2. blur bright fragments with two-pass Gaussian Blur
+        // blur bright fragments with two-pass Gaussian Blur
         // --------------------------------------------------
         bool horizontal = true, first_iteration = true;
         unsigned int amount = 5;
@@ -854,7 +865,7 @@ int main() {
         }
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-        // 3. now render floating point color buffer to 2D quad and tonemap HDR colors to default framebuffer's (clamped) color range
+        // render floating point color buffer to 2D quad and tonemap HDR colors to default framebuffer's (clamped) color range
         // --------------------------------------------------------------------------------------------------------------------------
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         bloomFinalShader.use();
@@ -953,23 +964,12 @@ void DrawImGui(ProgramState *programState) {
 
     {
         static float f = 0.0f;
-        ImGui::Begin("Hello window");
-        ImGui::Text("Hello text");
-        ImGui::SliderFloat("Float slider", &f, 0.0, 1.0);
-        /*
-        ImGui::ColorEdit3("Background color", (float *) &programState->clearColor);
-        ImGui::DragFloat3("balloon position", (float*)&programState->balloonPosition);
-        ImGui::DragFloat("balloon scale", &programState->balloonScale, 0.05, 0.1, 4.0);
-        */
+        ImGui::Begin("Settings");
 
         ImGui::ColorEdit3("light color", (float *) &programState->lightColor);
         ImGui::DragFloat("exposure", &programState->exposure, 0.05, 0.01, 4.0);
         ImGui::Checkbox("bloom", &programState->bloom);
 
-        /*ImGui::DragFloat("pointLight.constant", &programState->pointLights[0].constant, 0.05, 0.0, 1.0);
-        ImGui::DragFloat("pointLight.linear", &programState->pointLights[0].linear, 0.05, 0.0, 1.0);
-        ImGui::DragFloat("pointLight.quadratic", &programState->pointLights[0].quadratic, 0.05, 0.0, 1.0);
-        */
         ImGui::End();
     }
 
@@ -1092,7 +1092,7 @@ unsigned int loadTexture(char const * path)
         glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
         glGenerateMipmap(GL_TEXTURE_2D);
 
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, format == GL_RGBA ? GL_CLAMP_TO_EDGE : GL_REPEAT); // for this tutorial: use GL_CLAMP_TO_EDGE to prevent semi-transparent borders. Due to interpolation it takes texels from next repeat
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, format == GL_RGBA ? GL_CLAMP_TO_EDGE : GL_REPEAT);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, format == GL_RGBA ? GL_CLAMP_TO_EDGE : GL_REPEAT);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -1107,3 +1107,4 @@ unsigned int loadTexture(char const * path)
 
     return textureID;
 }
+
