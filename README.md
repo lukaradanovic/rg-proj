@@ -2,6 +2,8 @@
 
 Group project for Computer Graphics course.
 
+<img src="screenshots/screenshot01.png" alt="scr01" width="500"/>  <img src="screenshots/screenshot02.png" alt="scr02" width="500"/>
+
 ## Usage
 - clone repository
 - open and run project in your IDE
